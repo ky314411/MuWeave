@@ -9,9 +9,9 @@ from .workspace import Workspace, digest
 MAX_MEDIA_BYTES = 256 * 1024 * 1024
 
 
-async def run_process(*args: str, timeout: int = 120) -> bytes:
+async def run_process(*args: str, timeout: int = 120, cwd: Path | None = None) -> bytes:
     process = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd
     )
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout)
