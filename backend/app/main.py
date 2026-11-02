@@ -23,6 +23,7 @@ from .media import MAX_MEDIA_BYTES, dependencies, import_asset, refresh_review
 from .providers import MEDIA_PRESETS, ProviderStore
 from .timeline import TimelineService
 from .tools import validate_project
+from .transcription import TranscriptionService
 from .workspace import Workspace
 
 
@@ -73,6 +74,7 @@ def create_app(data_dir: Path | None = None, secrets=None) -> FastAPI:
             )
             app.state.db, app.state.ws, app.state.providers = db, ws, providers
             app.state.agent, app.state.jobs, app.state.timeline = agent, jobs, timeline
+            app.state.transcription = TranscriptionService(db, ws, timeline)
             for job in db.list("jobs"):
                 if job["status"] in {"queued", "submitted", "running", "downloading", "checking"}:
                     jobs.start(job["id"])
@@ -80,6 +82,7 @@ def create_app(data_dir: Path | None = None, secrets=None) -> FastAPI:
             await agent.close()
             await jobs.close()
             await timeline.close()
+            await app.state.transcription.close()
 
     app = FastAPI(title="MuWeave", version="0.1.0", lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
@@ -331,6 +334,23 @@ def create_app(data_dir: Path | None = None, secrets=None) -> FastAPI:
     def renders(pid: str):
         app.state.ws.root(pid)
         return app.state.db.list("renders", project_id=pid)
+
+    @app.get("/api/projects/{pid}/transcriptions")
+    def transcriptions(pid: str):
+        app.state.ws.root(pid)
+        return app.state.db.list("transcriptions", project_id=pid)
+
+    @app.post("/api/projects/{pid}/transcriptions")
+    async def transcribe(pid: str, body: dict):
+        record = app.state.transcription.create(
+            pid, body.get("model_path", ""), body.get("language", "zh"), body.get("device", "cpu")
+        )
+        app.state.transcription.start(record["id"])
+        return record
+
+    @app.post("/api/transcriptions/{record_id}/apply")
+    def apply_transcription(record_id: str):
+        return app.state.transcription.apply(record_id)
 
     @app.get("/api/projects/{pid}/exports/{render_id}/{kind}")
     def export(pid: str, render_id: str, kind: Literal["video", "subtitle", "manifest"]):

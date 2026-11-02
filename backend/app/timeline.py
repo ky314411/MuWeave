@@ -99,7 +99,7 @@ class TimelineService:
             )
         )
 
-    def validate(self, pid: str, data: dict) -> dict:
+    def validate(self, pid: str, data: dict, require_subtitles: bool = True) -> dict:
         timeline = Timeline.model_validate(data).model_dump()
         if not timeline["clips"]:
             raise ValueError("Timeline has no clips")
@@ -117,6 +117,8 @@ class TimelineService:
             if not any(stream.get("codec_type") == "audio" for stream in asset["probe"]["streams"]):
                 raise ValueError("Video has no audio")
             total += clip["out_point"] - clip["in_point"]
+        if not require_subtitles:
+            return {"timeline": timeline, "duration": total}
         if not timeline["subtitles_reviewed"]:
             raise ValueError("Review subtitles against the actual selected audio before export")
         try:
