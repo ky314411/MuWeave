@@ -1,0 +1,1 @@
+"""MuWeave local application."""

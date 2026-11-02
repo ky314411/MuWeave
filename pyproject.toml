@@ -1,0 +1,35 @@
+[project]
+name = "muweave"
+version = "0.1.0"
+description = "Local-first AI short-drama creation and production"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.34,<1",
+  "pydantic-ai-slim[openai,anthropic,google]>=1,<3",
+  "httpx>=0.28,<1",
+  "keyring>=25,<26",
+  "pyyaml>=6,<7",
+  "python-multipart>=0.0.20,<1",
+]
+
+[project.optional-dependencies]
+transcription = ["faster-whisper>=1.1,<2"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
