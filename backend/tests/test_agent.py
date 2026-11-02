@@ -5,7 +5,49 @@ import pytest
 from app.db import Database
 from app.providers import ProviderStore
 from app.workspace import Workspace
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.models.function import FunctionModel
 from test_providers import MemorySecrets
+
+
+async def test_review_has_read_tools_but_no_write_tools(tmp_path, monkeypatch):
+    from app.agent import AgentService
+
+    db = Database(tmp_path / "state.db")
+    ws = Workspace(tmp_path, db)
+    pid = ws.create_project("独立审稿", "general")["id"]
+    character = ws.read(pid, "bible/characters.md")
+    ws.apply_changes(
+        pid,
+        "character",
+        [
+            {
+                "path": "bible/characters.md",
+                "content": "林舟的真实身份是守门人",
+                "expected_hash": character["hash"],
+            }
+        ],
+    )
+
+    def model(messages, info):
+        names = {tool.name for tool in info.function_tools}
+        assert "read_file" in names and "write_file" not in names
+        results = [part for message in messages for part in message.parts if isinstance(part, ToolReturnPart)]
+        if results:
+            assert "守门人" in str(results[-1].content)
+            return ModelResponse(parts=[TextPart("已核对人物原文")])
+        return ModelResponse(
+            parts=[ToolCallPart("read_file", {"path": "bible/characters.md"}, "review-read")]
+        )
+
+    providers = ProviderStore(db, MemorySecrets())
+    db.put("models", {"id": "test-model", "capabilities": {}})
+    monkeypatch.setattr(providers, "text_model", lambda *args, **kwargs: FunctionModel(model))
+    service = AgentService(db, ws, providers)
+    record = service.create(pid, "test-model", "读取人物台账并审稿", "review")
+    await service.execute(record["id"])
+    assert db.get("runs", record["id"])["status"] == "completed"
+    assert db.get("runs", record["id"])["output"] == "已核对人物原文"
 
 
 async def test_agent_writes_files_and_persists_full_tool_messages(tmp_path):

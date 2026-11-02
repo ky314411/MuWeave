@@ -156,7 +156,7 @@ class Workspace:
             snapshots, seen = [], set()
             for change in changes:
                 relative = change["path"]
-                if relative.split("/")[0] in {"assets", "exports"}:
+                if relative.replace("\\", "/").split("/")[0].casefold() in {"assets", "exports"}:
                     raise ValueError("Media paths must use media tools")
                 path = self.path(project_id, relative)
                 canonical = str(path).casefold()

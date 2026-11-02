@@ -28,6 +28,7 @@ class JobService:
         self.tasks: dict[str, asyncio.Task] = {}
         self.limit = asyncio.Semaphore(4)
         self.provider_limits: dict[str, asyncio.Semaphore] = {}
+        self.stopping = False
         for job in db.list("jobs"):
             if job["status"] == "submitting":
                 job.update(status="uncertain", error="应用在提交期间中断，请先核对供应商任务")
@@ -92,8 +93,12 @@ class JobService:
         limit = self.provider_limits.setdefault(connection["id"], asyncio.Semaphore(1))
         async with self.limit, limit:
             try:
+                if self.db.get("jobs", job_id)["status"] == "cancelled":
+                    return
                 await self._execute(job, model, connection)
             except asyncio.CancelledError:
+                if self.stopping and job["status"] != "submitting":
+                    return
                 status = "uncertain" if job["status"] == "submitting" else "cancelled"
                 self.set_state(
                     job, status, remote_cancelled=False, error="本地执行已停止；远端任务可能仍在运行"
@@ -182,9 +187,15 @@ class JobService:
             if not isinstance(url, str):
                 raise ValueError("No media URL/base64 at configured response path")
             validate_url(url)
+            source_origin, target_origin = urlsplit(connection["base_url"]), urlsplit(url)
+            if source_origin.scheme == "https" and target_origin.scheme != "https":
+                raise ValueError("HTTPS media download downgrade is forbidden")
             # Credentials belong to the provider endpoint, never to arbitrary result URLs.
             download_headers = (
-                headers if urlsplit(url).netloc == urlsplit(connection["base_url"]).netloc else {}
+                headers
+                if (target_origin.scheme, target_origin.netloc)
+                == (source_origin.scheme, source_origin.netloc)
+                else {}
             )
             chunks, total = [], 0
             async with self.client.stream("GET", url, headers=download_headers, timeout=120) as response:
@@ -220,7 +231,24 @@ class JobService:
         self.start(job_id)
 
     async def close(self):
+        self.stopping = True
         tasks = list(self.tasks.values())
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    def cancel(self, job_id: str):
+        job = self.db.get("jobs", job_id)
+        if job["status"] in {"ready", "failed", "cancelled", "uncertain"}:
+            return
+        status = "uncertain" if job["status"] == "submitting" else "cancelled"
+        self.set_state(job, status, remote_cancelled=False)
+        if task := self.tasks.get(job_id):
+            task.cancel()
+
+    def resume_download(self, job_id: str):
+        job = self.db.get("jobs", job_id)
+        if job["status"] not in {"failed", "cancelled"} or not job.get("result"):
+            raise ValueError("No persisted generation result to download")
+        self.set_state(job, "downloading", error=None)
+        self.start(job_id)

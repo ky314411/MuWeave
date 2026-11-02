@@ -6,14 +6,14 @@ from pydantic import BaseModel, Field
 
 from .db import Database, new_id, now
 from .media import probe, refresh_review, run_process
-from .workspace import Workspace, atomic_write
+from .workspace import Workspace, atomic_write, digest
 
 
 class Clip(BaseModel):
     asset_id: str
-    in_point: float = Field(default=0, ge=0, allow_inf_nan=False)
+    in_point: float = Field(default=0.0, ge=0, allow_inf_nan=False)
     out_point: float = Field(gt=0, allow_inf_nan=False)
-    volume: float = Field(default=1, ge=0, le=3)
+    volume: float = Field(default=1.0, ge=0, le=3)
 
 
 class Subtitle(BaseModel):
@@ -82,7 +82,22 @@ class TimelineService:
                 }
             ],
         )
+        if timeline["subtitles_reviewed"]:
+            self.db.put(
+                "timeline_reviews",
+                {"id": pid, "fingerprint": self.review_fingerprint(timeline), "confirmed_at": now()},
+            )
         return self.load(pid)
+
+    @staticmethod
+    def review_fingerprint(timeline: dict) -> str:
+        return digest(
+            json.dumps(
+                {"clips": timeline["clips"], "subtitles": timeline["subtitles"]},
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+        )
 
     def validate(self, pid: str, data: dict) -> dict:
         timeline = Timeline.model_validate(data).model_dump()
@@ -104,6 +119,12 @@ class TimelineService:
             total += clip["out_point"] - clip["in_point"]
         if not timeline["subtitles_reviewed"]:
             raise ValueError("Review subtitles against the actual selected audio before export")
+        try:
+            confirmation = self.db.get("timeline_reviews", pid)
+        except KeyError:
+            confirmation = {}
+        if confirmation.get("fingerprint") != self.review_fingerprint(timeline):
+            raise ValueError("Human review does not match current clips and subtitles")
         previous_end = 0
         for subtitle in timeline["subtitles"]:
             if (

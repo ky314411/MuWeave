@@ -1,8 +1,17 @@
 import asyncio
 import json
 
-from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, ToolCallPart, ToolReturnPart
+from pydantic_ai import Agent, ModelRequestNode
+from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.usage import UsageLimits
 
 from .db import Database, new_id, now
@@ -110,14 +119,7 @@ class AgentService:
             + RECIPES[record["recipe"]],
             retries=1,
         )
-        register_tools(agent)
-        if record["recipe"] == "review":
-            # Remove mutating tools for independent review, rather than relying on a prompt.
-            agent = Agent(
-                self.providers.text_model(record["model_id"]),
-                instructions="你是独立短剧审稿员。只输出具体问题、文件位置、依据、严重程度和修改建议。艺术判断不确定时标记待复核。"
-                + RECIPES["review"],
-            )
+        register_tools(agent, readonly=record["recipe"] == "review")
         deps = ToolDeps(record["project_id"], run_id, self.workspace, self.db)
         context = await asyncio.to_thread(
             build_context, self.workspace, record["project_id"], record.get("current_file")
@@ -135,6 +137,18 @@ class AgentService:
                     record["messages"] = json.loads(run.all_messages_json())
                     self.db.put("runs", record)
                     self.db.event(run_id, "step", node=type(node).__name__)
+                    config = self.db.get("models", record["model_id"])
+                    if isinstance(node, ModelRequestNode) and config["capabilities"].get("streaming"):
+                        async with node.stream(run.ctx) as response:
+                            async for event in response:
+                                if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                                    self.db.event(run_id, "text_delta", text=event.part.content)
+                                if isinstance(event, PartDeltaEvent) and isinstance(
+                                    event.delta, TextPartDelta
+                                ):
+                                    self.db.event(run_id, "text_delta", text=event.delta.content_delta)
+                        record["messages"] = json.loads(run.all_messages_json())
+                        self.db.put("runs", record)
                 record["output"] = run.result.output
                 record["usage"] = {
                     "requests": run.usage.requests,

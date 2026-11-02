@@ -272,13 +272,13 @@ def create_app(data_dir: Path | None = None, secrets=None) -> FastAPI:
 
     @app.post("/api/jobs/{job_id}/cancel")
     async def cancel_job(job_id: str):
-        job = app.state.db.get("jobs", job_id)
-        task = app.state.jobs.tasks.get(job_id)
-        if task:
-            task.cancel()
-        elif job["status"] not in {"ready", "failed", "cancelled", "uncertain"}:
-            app.state.jobs.set_state(job, "cancelled", remote_cancelled=False)
+        app.state.jobs.cancel(job_id)
         return {"local_cancel_requested": True, "remote_cancelled": False}
+
+    @app.post("/api/jobs/{job_id}/retry-download")
+    async def retry_download(job_id: str):
+        app.state.jobs.resume_download(job_id)
+        return {"resumed": True}
 
     @app.get("/api/projects/{pid}/assets")
     def assets(pid: str):

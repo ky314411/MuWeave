@@ -30,7 +30,16 @@ def validate_project(ws: Workspace, project_id: str) -> dict:
     return {"issues": issues, "mechanical_only": True, "note": "连续性和艺术质量仍须结合台账与人工/模型审稿"}
 
 
-def register_tools(agent: Agent, deps_type=ToolDeps):
+def register_tools(agent: Agent, readonly: bool = False):
+    def tool(function=None, **kwargs):
+        def register(fn):
+            name = kwargs.get("name", fn.__name__)
+            if readonly and name not in {"list_files", "read_file", "search_files", "validate_project"}:
+                return fn
+            return agent.tool(fn, **kwargs)
+
+        return register(function) if function is not None else register
+
     def perform(ctx, callback):
         deps = ctx.deps
         call_id = f"{deps.run_id}:{ctx.tool_call_id}"
@@ -60,17 +69,17 @@ def register_tools(agent: Agent, deps_type=ToolDeps):
         deps.db.event(deps.run_id, "tool_completed", name=ctx.tool_name, call_id=ctx.tool_call_id)
         return result
 
-    @agent.tool
+    @tool
     def list_files(ctx: RunContext[ToolDeps]) -> list[str]:
         """List text project files; inspect only what the current task needs."""
         return perform(ctx, lambda deps, _: deps.workspace.files(deps.project_id))
 
-    @agent.tool
+    @tool
     def read_file(ctx: RunContext[ToolDeps], path: str) -> dict:
         """Read UTF-8 text and its SHA-256 hash. Read before editing existing files."""
         return perform(ctx, lambda deps, _: deps.workspace.read(deps.project_id, path))
 
-    @agent.tool
+    @tool
     def search_files(ctx: RunContext[ToolDeps], query: str) -> list[dict]:
         """Search literal text in project files, returning up to 40 matching lines."""
 
@@ -90,7 +99,7 @@ def register_tools(agent: Agent, deps_type=ToolDeps):
 
         return perform(ctx, search)
 
-    @agent.tool
+    @tool
     def write_file(ctx: RunContext[ToolDeps], path: str, content: str, expected_hash: str | None) -> dict:
         """Write text. expected_hash is the last read hash, or null for a new file. Never lock content."""
         return perform(
@@ -100,7 +109,7 @@ def register_tools(agent: Agent, deps_type=ToolDeps):
             ),
         )
 
-    @agent.tool
+    @tool
     def edit_file(
         ctx: RunContext[ToolDeps], path: str, old_text: str, new_text: str, expected_hash: str
     ) -> dict:
@@ -124,14 +133,14 @@ def register_tools(agent: Agent, deps_type=ToolDeps):
 
         return perform(ctx, edit)
 
-    @agent.tool
+    @tool
     def apply_changes(ctx: RunContext[ToolDeps], changes: list[dict]) -> dict:
         """Apply a related modification group; each change has path, content and expected_hash."""
         return perform(
             ctx, lambda deps, call_id: deps.workspace.apply_changes(deps.project_id, call_id, changes)
         )
 
-    @agent.tool
+    @tool
     def delete_file(ctx: RunContext[ToolDeps], path: str, expected_hash: str) -> dict:
         """Soft delete text with recoverable history. Return the change id needed for restore."""
         return perform(
@@ -141,12 +150,12 @@ def register_tools(agent: Agent, deps_type=ToolDeps):
             ),
         )
 
-    @agent.tool
+    @tool
     def restore_file(ctx: RunContext[ToolDeps], change_id: str) -> dict:
         """Undo a committed modification group after verifying current file versions."""
         return perform(ctx, lambda deps, call_id: deps.workspace.undo(deps.project_id, change_id, call_id))
 
-    @agent.tool
+    @tool
     def move_file(ctx: RunContext[ToolDeps], source: str, destination: str, expected_hash: str) -> dict:
         """Move text through a recoverable modification group; destination must not exist."""
 
@@ -163,12 +172,12 @@ def register_tools(agent: Agent, deps_type=ToolDeps):
 
         return perform(ctx, move)
 
-    @agent.tool(name="validate_project")
+    @tool(name="validate_project")
     def validate(ctx: RunContext[ToolDeps]) -> dict:
         """Run mechanical project checks; this does not establish artistic quality."""
         return perform(ctx, lambda deps, _: validate_project(deps.workspace, deps.project_id))
 
-    @agent.tool
+    @tool
     def export_script_book(ctx: RunContext[ToolDeps]) -> dict:
         """Collect current episode text into a Markdown script book in production/script-book.md."""
 
@@ -189,7 +198,13 @@ def register_tools(agent: Agent, deps_type=ToolDeps):
 
 
 def build_context(ws: Workspace, pid: str, current_file: str | None = None) -> str:
-    paths = ["series.yaml", "bible/world.md", "outline/series.md", "outline/episodes.md"]
+    paths = [
+        "series.yaml",
+        "bible/world.md",
+        "bible/characters.md",
+        "outline/series.md",
+        "outline/episodes.md",
+    ]
     if current_file and current_file not in paths:
         paths.append(current_file)
     context, remaining = [], 24000
