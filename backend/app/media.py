@@ -42,7 +42,7 @@ def dependencies(ws: Workspace, project_id: str, paths: list[str]) -> dict:
 
 def refresh_review(ws: Workspace, asset: dict) -> dict:
     stale = False
-    for path, expected in asset.get("dependencies", {}).items():
+    for path, expected in asset.get("accepted_dependencies", asset.get("dependencies", {})).items():
         try:
             actual = ws.read(asset["project_id"], path)["hash"]
         except FileNotFoundError:
