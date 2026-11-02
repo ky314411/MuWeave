@@ -202,7 +202,7 @@ MEDIA_PRESETS = {
         "submit_path": "/contents/generations/tasks",
         "body": {
             "model": "${model}",
-            "content": [{"type": "text", "text": "${prompt}"}],
+            "content": "${content}",
             "generate_audio": True,
         },
         "task_id_path": "id",
