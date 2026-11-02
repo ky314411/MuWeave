@@ -1,14 +1,52 @@
 import base64
+import json
 
 import httpx
 from app.db import Database
-from app.providers import ProviderStore
+from app.media import import_asset
+from app.providers import MEDIA_PRESETS, ProviderStore
 from app.workspace import Workspace
 from test_providers import MemorySecrets
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII="
 )
+
+
+async def test_reference_image_and_native_audio_video_lifecycle(tmp_path, video_bytes):
+    def handler(request):
+        if request.method == "POST":
+            body = json.loads(request.content)
+            assert body["generate_audio"] is True
+            assert body["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+            return httpx.Response(200, json={"id": "video-task"})
+        if request.url.path.endswith("video-task"):
+            return httpx.Response(
+                200, json={"status": "succeeded", "content": {"video_url": "http://media.test/clip.mp4"}}
+            )
+        return httpx.Response(200, content=video_bytes)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        db, ws, _, pid, model, service = setup(tmp_path, client)
+        image = await import_asset(ws, pid, PNG, "image", "reference.png")
+        image["review"] = "accepted"
+        db.put("assets", image)
+        model.update(
+            kind="video",
+            capabilities={"native_audio": True, "reference_images": True},
+            media=MEDIA_PRESETS["ark-video"],
+        )
+        db.put("models", model)
+        job = service.create(
+            pid, {"model_id": model["id"], "prompt": "有声镜头", "reference_ids": [image["id"]]}
+        )
+        await service.execute(job["id"])
+        result = db.get("jobs", job["id"])
+        assert result["status"] == "ready", result
+        asset = db.get("assets", result["asset_id"])
+        assert asset["kind"] == "video"
+        assert image["id"] in asset["reference_hashes"]
+        assert any(stream["codec_type"] == "audio" for stream in asset["probe"]["streams"])
 
 
 def setup(tmp_path, client):
