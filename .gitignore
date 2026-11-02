@@ -1,0 +1,32 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Frontend
+node_modules/
+dist/
+coverage/
+
+# Local application data and generated media
+data-root/
+app-state/
+.studio-state/
+*.sqlite3
+*.sqlite3-*
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
