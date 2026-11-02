@@ -4,9 +4,28 @@
 
 从创意、世界观、人物、剧本，到分镜、参考图、原生有声视频、字幕、剪辑和成片导出，让模型通过受控工具参与整个制作流程。文本、图片、视频三类模型均支持自定义供应商。
 
-> **项目状态：架构设计阶段。** 当前仓库用于记录已确认的完整架构与第一阶段范围，尚未实现应用功能。下文中的模块、目录、接口和工作流均为待实现方案，不代表目前已经可用。
+> **项目状态：本地初始版本。** 已实现项目文件与历史、自定义供应商配置、Pydantic AI 工具调用、素材任务与审阅、时间线、可选本地转写和 FFmpeg 导出。真实供应商的生成质量与约 90 秒完整短剧尚未验收。下文保留完整目标架构；实际进度和限制见[验收记录](docs/acceptance.md)。
 
-开发优先级已明确为：**生成质量优先，同时保持工作流代码高效、稳定**。[质量优先的执行与验收设计](docs/superpowers/specs/2026-11-03-quality-first-design.md) 补充质量检查、性能策略与 Agent 框架选型建议；原架构正文保留，框架建议待兼容性验证后落实。
+开发优先级已明确为：**生成质量优先，同时保持工作流代码高效、稳定**。[质量优先的执行与验收设计](docs/superpowers/specs/2026-11-03-quality-first-design.md) 补充质量检查与性能策略。Agent 已采用 Pydantic AI，兼容协议工具往返及流式参数测试通过；真实模型仍需配置验证。
+
+## 本地运行
+
+需要 Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 24 和系统 PATH 中的 FFmpeg / ffprobe。首次在仓库根目录执行：
+
+```powershell
+uv sync --locked
+npm --prefix frontend ci
+npm --prefix frontend run build
+uv run uvicorn app.main:create_app --factory --app-dir backend --host 127.0.0.1 --port 8000
+```
+
+打开 [MuWeave 本地界面](http://127.0.0.1:8000)，先在设置页配置自己的连接和模型。按 `Ctrl+C` 停止；重新执行最后一条命令启动。默认数据保存在用户目录 `.muweave` 中，与代码分开；可通过 `MUWEAVE_DATA_DIR` 指定其他本地数据目录。当前以一个后端进程运行，不设置多个 workers。
+
+开发前端时，在另一个终端执行 `npm --prefix frontend run dev`，访问 [开发界面](http://127.0.0.1:5173)，API 代理到 8000 端口。
+
+可选本地语音识别：执行 `uv sync --extra transcription`，准备已转换的 faster-whisper 模型目录，在剪辑页填写模型路径。应用不自动下载语音模型。Linux 需要可用的系统 keyring 后端；中文烧录字幕需要系统安装中文字体。
+
+首次真实生成会调用你配置的供应商，可能产生费用；生成任务由用户明确提交，拒绝素材不会自动触发新的付费生成。
 
 ## 1. 项目定位
 
@@ -77,7 +96,7 @@ flowchart LR
 | UI | Element Plus + 少量 Tailwind CSS | 表单、表格、弹窗和布局 |
 | 文件编辑 | Monaco Editor | Markdown / YAML 编辑与选择内容 |
 | 后端 | FastAPI + Pydantic | API、数据校验、工具执行和业务编排 |
-| Agent | 自实现单 Agent 工具循环 | 上下文组装、模型调用、工具往返 |
+| Agent | Pydantic AI + 本地工具执行层 | 上下文组装、模型调用、工具往返与执行记录 |
 | 业务数据 | Markdown / YAML | 设定、剧本、台账、分镜和时间线 |
 | 应用状态 | SQLite | 会话、任务、配置、事件和素材索引 |
 | 后台执行 | 一个后台 worker + 进程内异步队列 | 生成、下载、检查与渲染 |
@@ -401,7 +420,7 @@ MuWeave/
 └─ scripts/                      # 本地开发与维护脚本
 ```
 
-当前只初始化文档仓库，不提前创建这些尚未实现的应用目录，也不提供无法实际运行的启动命令。
+上图是模块职责规划；当前后端按 `backend/app/` 下的职责模块实现，前端在 `frontend/src/`。实际启动命令见本文开头，已实现与待完成范围见验收记录。
 
 ## 12. 界面组织
 
