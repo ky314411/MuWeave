@@ -21,6 +21,7 @@ from .db import Database, new_id, now
 from .jobs import JobService
 from .media import MAX_MEDIA_BYTES, dependencies, import_asset, refresh_review
 from .providers import MEDIA_PRESETS, ProviderStore
+from .secrets import EncryptedFileSecrets
 from .timeline import TimelineService
 from .tools import validate_project
 from .transcription import TranscriptionService
@@ -56,6 +57,8 @@ class ReviewInput(BaseModel):
 
 def create_app(data_dir: Path | None = None, secrets=None) -> FastAPI:
     data_dir = Path(data_dir or os.environ.get("MUWEAVE_DATA_DIR", str(Path.home() / ".muweave"))).resolve()
+    if secrets is None and (key_file := os.environ.get("MUWEAVE_MASTER_KEY_FILE")):
+        secrets = EncryptedFileSecrets(data_dir / "credentials.enc", Path(key_file))
 
     @asynccontextmanager
     async def lifespan(app):
