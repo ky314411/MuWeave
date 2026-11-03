@@ -10,6 +10,17 @@
 
 ## 本地运行
 
+推荐使用 Docker Desktop（Linux 容器）：
+
+```powershell
+# 生产构建：http://127.0.0.1:8080
+docker compose up -d --build --wait
+# 开发热重载：http://127.0.0.1:5173，两套数据独立
+docker compose -f compose.dev.yaml up -d --build --wait
+```
+
+停止时分别执行 `docker compose stop` 或 `docker compose -f compose.dev.yaml stop`。安装依赖、凭据持久化、本机 Ollama、可选语音模型、备份与完整命令见 [Docker 说明](docs/docker.md)。以下为直接在宿主机运行的方式。
+
 需要 Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 24 和系统 PATH 中的 FFmpeg / ffprobe。首次在仓库根目录执行：
 
 ```powershell

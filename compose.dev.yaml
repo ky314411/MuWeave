@@ -1,0 +1,70 @@
+name: muweave-dev
+
+services:
+  backend:
+    image: muweave:dev-backend
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: backend-dev
+      args:
+        INSTALL_TRANSCRIPTION: ${MUWEAVE_TRANSCRIPTION:-false}
+        HTTP_PROXY: ${MUWEAVE_PROXY:-}
+        HTTPS_PROXY: ${MUWEAVE_PROXY:-}
+    init: true
+    stop_grace_period: 40s
+    ports:
+      - "127.0.0.1:${MUWEAVE_API_PORT:-8000}:8000"
+    environment:
+      MUWEAVE_DATA_DIR: /data
+      MUWEAVE_MASTER_KEY_FILE: /run/muweave-secrets/master.key
+      WATCHFILES_FORCE_POLLING: "true"
+      HTTP_PROXY: ${MUWEAVE_PROXY:-}
+      HTTPS_PROXY: ${MUWEAVE_PROXY:-}
+      NO_PROXY: localhost,127.0.0.1,::1,host.docker.internal,backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app/backend:ro
+      - ./scripts:/app/scripts:ro
+      - data:/data
+      - keys:/run/muweave-secrets
+      - ${MUWEAVE_MODELS_DIR:-models}:/models:ro
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    image: muweave:dev-frontend
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: web-dev
+      args:
+        NODE_IMAGE: ${MUWEAVE_NODE_IMAGE:-node:24-bookworm-slim}
+        HTTP_PROXY: ${MUWEAVE_PROXY:-}
+        HTTPS_PROXY: ${MUWEAVE_PROXY:-}
+    init: true
+    ports:
+      - "127.0.0.1:${MUWEAVE_DEV_PORT:-5173}:5173"
+    environment:
+      MUWEAVE_API_PROXY: http://backend:8000
+      MUWEAVE_POLLING: "true"
+    volumes:
+      - ./frontend/src:/app/frontend/src:ro
+      - ./frontend/index.html:/app/frontend/index.html:ro
+      - ./frontend/vite.config.ts:/app/frontend/vite.config.ts:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  data:
+  keys:
+  models:

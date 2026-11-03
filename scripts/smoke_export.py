@@ -15,10 +15,10 @@ from app.timeline import TimelineService  # noqa: E402
 from app.workspace import Workspace  # noqa: E402
 
 
-async def main(duration: float):
+async def main(duration: float, data_dir: Path | None = None):
     if not 1 <= duration <= 180:
         raise ValueError("Duration must be 1–180 seconds")
-    data = ROOT / "app-state" / "smoke"
+    data = data_dir or ROOT / "app-state" / "smoke"
     data.mkdir(parents=True, exist_ok=True)
     db = Database(data / "app-state" / "muweave.sqlite3")
     ws = Workspace(data, db)
@@ -94,4 +94,6 @@ async def main(duration: float):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--duration", type=float, default=90)
-    asyncio.run(main(parser.parse_args().duration))
+    parser.add_argument("--data-dir", type=Path, help="Use a writable container directory, e.g. /data/smoke")
+    args = parser.parse_args()
+    asyncio.run(main(args.duration, args.data_dir))
